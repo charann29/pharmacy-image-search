@@ -18,8 +18,9 @@ is a black box we call and merge from.
 - **`eval/`** — recall@k / latency / threshold-calibration harness.
 - **`docs/`** — provider alternatives, cost model, DINOv3 license review, runbook.
 
-See `.plans/v2-image-search.md` (repo-external) for the full task breakdown and
-`docs/` for operational detail.
+See `docs/plan/implementation-plan.md` for the full task breakdown (approved
+plan, 14 tasks) and `docs/` for operational detail (cost model, provider
+alternatives, DINOv3 license review, runbook).
 
 ## Secrets
 
