@@ -32,6 +32,61 @@ the scratch collection.
 > so visual search cannot disambiguate them until real pack photos are uploaded.
 > This is a data-quality issue in the catalog, not a pipeline defect.
 
+## Real model verification (SigLIP 2, CPU) — 2026-07-18
+
+The earlier probe used a deterministic fake encoder to prove the plumbing. This
+round ran the **actual production encoder** — `google/siglip2-so400m-patch16-naflex`
+(1152-dim), the configured launch encoder — on CPU against real catalog images.
+
+- Model loaded on CPU in ~5s; embedded real ImageKit images at ~390 ms/image
+  (CPU; a GPU is ~50–200× faster, see below).
+- 60 real product images pulled from live D1 (read-only) → fetched from ImageKit
+  → embedded with the real model → indexed to a **scratch** Qdrant collection →
+  queried. Self-match ranked #1 at score 1.0000. Scratch collection deleted;
+  production untouched.
+- **Real visual similarity confirmed** — the model groups visually-alike
+  products, not just exact matches:
+  - Inhaler query → nearest neighbours are other inhalers (SERETIDE Evohaler /
+    Accuhaler) at high scores.
+  - Sachet query (`MOREASE I SACHET`) → other sachets (MONUROL, RAZO EASY,
+    CARTILOX) at ~0.65–0.68.
+  - Distinct-category items score visibly lower, as expected.
+
+**Bug found & fixed during this run:** `app/encoders/siglip2.py::_forward` assumed
+`get_image_features()` returns a bare tensor. Under `transformers>=5.x` it
+returns a `BaseModelOutputWithPooling` wrapper whose embedding is
+`pooler_output`. Fixed to unwrap it (DINOv3 already handled this). Added
+regression test `tests/test_encoders.py::test_siglip_embed_unwraps_pooler_output`.
+Full ml-service suite: **120 passed**.
+
+Reproduce with `ml-service/scripts/live_real_siglip_probe.py` (needs the D1 env
+vars, a Qdrant at `localhost:6333`, and `torch`+`transformers>=4.56` installed;
+downloads ~1.1 GB of weights on first run).
+
+## Do you need a GPU?
+
+**No — not to run it, only to run it *fast at scale*.** SigLIP 2 (and DINOv3)
+run correctly on CPU; this verification proves it. The only difference is
+throughput for the one-time backfill of your ~320k images:
+
+| Path | Throughput (approx) | Time to embed 320k images (one-time) |
+| ---- | ------------------- | ------------------------------------ |
+| This 8-vCPU sandbox (measured) | ~390 ms/img (~2.5/s) | ~35 hours |
+| A single mid-range GPU (T4/L4/A10) | ~5–20 ms/img | ~1–3 hours |
+
+Options that avoid owning a GPU:
+1. **CPU backfill** — works today, just slow; fine as an overnight/background
+   job, and can be chunked via the existing `backfill_index.py` checkpointing.
+2. **Rent a GPU by the hour** for the one-time backfill (e.g. a spot T4/L4);
+   a few dollars embeds the whole catalog in ~1–3h. Query-time embedding of a
+   single uploaded photo is cheap even on CPU (~0.4s), so **serving does not
+   need a GPU** — only the initial bulk index benefits from one.
+3. **Managed embedding API** (e.g. Vertex multimodal, ~$0.0001/image ≈ $32 for
+   320k) — no infra at all, at the cost of the self-hosted principle you chose.
+
+Bottom line: a GPU is a cost/speed optimization for the initial backfill, **not
+a requirement**. Real-time photo→product search runs fine CPU-only.
+
 ## Schema mismatch — action required before backfill can run against prod
 
 This project was built **greenfield** to the approved plan's schema. The **live**

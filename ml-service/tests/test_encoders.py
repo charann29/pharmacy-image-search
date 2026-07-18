@@ -213,6 +213,25 @@ def test_siglip_embed_shape_and_norm(monkeypatch):
     assert np.isclose(np.linalg.norm(out[0]), 1.0, atol=1e-5)
 
 
+def test_siglip_embed_unwraps_pooler_output(monkeypatch):
+    """Regression: transformers >=5.x returns ``get_image_features`` as a
+    ModelOutput wrapper whose image embedding is ``pooler_output`` (not a bare
+    tensor). The encoder must unwrap it. Verified live against the real
+    google/siglip2-so400m-patch16-naflex model."""
+    dim = 16
+
+    def feature_fn(**inputs):
+        return _FakeOutputs(_FakeTensor(np.arange(dim, dtype=np.float32)[None, :] + 1.0))
+
+    enc = _make_siglip_encoder(monkeypatch, dim, feature_fn)
+    from PIL import Image
+
+    out = enc.embed([Image.new("RGB", (32, 32), (10, 20, 30))])
+    assert out.shape == (1, dim)
+    assert out.dtype == np.float32
+    assert np.isclose(np.linalg.norm(out[0]), 1.0, atol=1e-5)
+
+
 def test_siglip_embed_deterministic_and_identical_cosine(monkeypatch):
     dim = 16
 

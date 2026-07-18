@@ -33,4 +33,10 @@ class SigLIP2Encoder(_BaseHFEncoder):
     def _forward(self, model, processor, batch) -> "np.ndarray":
         inputs = self._prepare_inputs(batch)
         features = model.get_image_features(**inputs)
+        # Older transformers return a tensor; newer (>=5.x) may return a
+        # ModelOutput wrapper whose image embedding is ``pooler_output``.
+        if hasattr(features, "pooler_output"):
+            features = features.pooler_output
+        elif not hasattr(features, "float"):
+            features = features[0]
         return features.float().cpu().numpy()
