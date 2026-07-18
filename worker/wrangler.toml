@@ -31,6 +31,18 @@ HYBRID_FUSION_ENABLED = "false"
 ML_SERVICE_URL = "http://localhost:8000"
 TEXT_SEARCH_URL = ""
 COMMERCE_API_URL = ""
+# --- Optional tuning vars (Worker falls back to sane defaults when unset) ---
+# FUSION_MODE                  = "rrf"      # "rrf" (default) | "weighted"
+# W_IMAGE                      = "1.0"      # image weight (weighted mode)
+# W_TEXT                       = "1.0"      # text weight (weighted mode)
+# RRF_K                        = "60"       # RRF constant
+# WEAK_VISUAL_IMAGE_MULTIPLIER = "0.3"      # image down-weight on weak match
+# MAX_UPLOAD_BYTES             = "10485760" # strict max upload size (10 MiB)
+# ML_TIMEOUT_MS                = "8000"     # ML /search + /ocr timeout
+# TEXT_SEARCH_TIMEOUT_MS       = "2500"     # text adapter timeout
+# COMMERCE_TIMEOUT_MS          = "2500"     # commerce adapter timeout
+# PERSIST_QUERY_PHOTOS         = "false"    # opt-in ImageKit persistence (PII!)
+# IMAGEKIT_UPLOAD_URL          = "https://upload.imagekit.io/api/v1/files/upload"
 
 # Secrets referenced by the Worker (set via `wrangler secret put`, NEVER here):
 #   IMAGEKIT_PUBLIC_KEY
