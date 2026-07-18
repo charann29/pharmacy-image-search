@@ -1,0 +1,15 @@
+{"category": "analgesic", "expected_product_id": "P0000", "in_catalog": true, "query_image_path": "images/P0000-q0.png"}
+{"category": "analgesic", "expected_product_id": "P0000", "in_catalog": true, "query_image_path": "images/P0000-q1.png"}
+{"category": "antibiotic", "expected_product_id": "P0001", "in_catalog": true, "query_image_path": "images/P0001-q0.png"}
+{"category": "antibiotic", "expected_product_id": "P0001", "in_catalog": true, "query_image_path": "images/P0001-q1.png"}
+{"category": "antacid", "expected_product_id": "P0002", "in_catalog": true, "query_image_path": "images/P0002-q0.png"}
+{"category": "antacid", "expected_product_id": "P0002", "in_catalog": true, "query_image_path": "images/P0002-q1.png"}
+{"category": "antihistamine", "expected_product_id": "P0003", "in_catalog": true, "query_image_path": "images/P0003-q0.png"}
+{"category": "antihistamine", "expected_product_id": "P0003", "in_catalog": true, "query_image_path": "images/P0003-q1.png"}
+{"category": "vitamin", "expected_product_id": "P0004", "in_catalog": true, "query_image_path": "images/P0004-q0.png"}
+{"category": "vitamin", "expected_product_id": "P0004", "in_catalog": true, "query_image_path": "images/P0004-q1.png"}
+{"category": "topical", "expected_product_id": "P0005", "in_catalog": true, "query_image_path": "images/P0005-q0.png"}
+{"category": "topical", "expected_product_id": "P0005", "in_catalog": true, "query_image_path": "images/P0005-q1.png"}
+{"category": "out_of_catalog", "expected_product_id": null, "in_catalog": false, "query_image_path": "images/OOC-0.png"}
+{"category": "out_of_catalog", "expected_product_id": null, "in_catalog": false, "query_image_path": "images/OOC-1.png"}
+{"category": "out_of_catalog", "expected_product_id": null, "in_catalog": false, "query_image_path": "images/OOC-2.png"}

@@ -1,0 +1,12 @@
+{"category": "analgesic", "image_id": "P0000-ref-0", "image_path": "images/P0000-ref-0.png", "is_reference": true, "product_id": "P0000", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "analgesic", "image_id": "P0000-ref-1", "image_path": "images/P0000-ref-1.png", "is_reference": true, "product_id": "P0000", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "antibiotic", "image_id": "P0001-ref-0", "image_path": "images/P0001-ref-0.png", "is_reference": true, "product_id": "P0001", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "antibiotic", "image_id": "P0001-ref-1", "image_path": "images/P0001-ref-1.png", "is_reference": true, "product_id": "P0001", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "antacid", "image_id": "P0002-ref-0", "image_path": "images/P0002-ref-0.png", "is_reference": true, "product_id": "P0002", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "antacid", "image_id": "P0002-ref-1", "image_path": "images/P0002-ref-1.png", "is_reference": true, "product_id": "P0002", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "antihistamine", "image_id": "P0003-ref-0", "image_path": "images/P0003-ref-0.png", "is_reference": true, "product_id": "P0003", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "antihistamine", "image_id": "P0003-ref-1", "image_path": "images/P0003-ref-1.png", "is_reference": true, "product_id": "P0003", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "vitamin", "image_id": "P0004-ref-0", "image_path": "images/P0004-ref-0.png", "is_reference": true, "product_id": "P0004", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "vitamin", "image_id": "P0004-ref-1", "image_path": "images/P0004-ref-1.png", "is_reference": true, "product_id": "P0004", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "topical", "image_id": "P0005-ref-0", "image_path": "images/P0005-ref-0.png", "is_reference": true, "product_id": "P0005", "source_updated_at": "2026-07-01T00:00:00Z"}
+{"category": "topical", "image_id": "P0005-ref-1", "image_path": "images/P0005-ref-1.png", "is_reference": true, "product_id": "P0005", "source_updated_at": "2026-07-01T00:00:00Z"}
