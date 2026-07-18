@@ -143,6 +143,7 @@ class SourceImage:
 class SyncReport:
     mapped: int = 0
     unmapped: int = 0
+    invalid: int = 0
     products_inserted: int = 0
     products_updated: int = 0
     images_inserted: int = 0
@@ -166,6 +167,7 @@ class SyncReport:
         return {
             "mapped": self.mapped,
             "unmapped": self.unmapped,
+            "invalid": self.invalid,
             "products_inserted": self.products_inserted,
             "products_updated": self.products_updated,
             "images_inserted": self.images_inserted,
@@ -180,7 +182,15 @@ def normalize_rows(
     raw_rows: Iterable[dict[str, Any]],
     report: SyncReport,
 ) -> list[SourceImage]:
-    """Validate + normalize raw rows; route unmapped rows into the report."""
+    """Validate + normalize raw rows; route unmapped/invalid rows into the report.
+
+    Enforces the FULL source-adapter contract. A row must carry every required
+    field: the product↔image mapping (``product_id``, ``image_id``) AND the
+    ImageKit/versioning fields (``imagekit_file_id``, ``imagekit_url``,
+    ``source_updated_at``). Rows missing any required field are reported and
+    skipped (never inserted) so empty URLs/ids cannot poison D1 and break the
+    later backfill. ``is_reference`` defaults to 0 when absent (not required).
+    """
     images: list[SourceImage] = []
     for raw in raw_rows:
         product_id = str(raw.get("product_id") or "").strip()
@@ -194,14 +204,39 @@ def normalize_rows(
                 raw.get("imagekit_file_id") or raw.get("image_id") or raw,
             )
             continue
+
+        # Enforce the remaining required fields. Missing any -> invalid + skip.
+        imagekit_file_id = str(raw.get("imagekit_file_id") or "").strip()
+        imagekit_url = str(raw.get("imagekit_url") or "").strip()
+        source_updated_at = str(raw.get("source_updated_at") or "").strip()
+        missing = [
+            name
+            for name, val in (
+                ("imagekit_file_id", imagekit_file_id),
+                ("imagekit_url", imagekit_url),
+                ("source_updated_at", source_updated_at),
+            )
+            if not val
+        ]
+        if missing:
+            report.invalid += 1
+            report.unmapped += 1  # counted in the skipped/reported total
+            report.unmapped_images.append(dict(raw))
+            logger.warning(
+                "invalid image skipped (missing required field(s) %s): image_id=%s",
+                ",".join(missing),
+                image_id,
+            )
+            continue
+
         report.mapped += 1
         images.append(
             SourceImage(
                 product_id=product_id,
                 image_id=image_id,
-                imagekit_file_id=str(raw.get("imagekit_file_id") or ""),
-                imagekit_url=str(raw.get("imagekit_url") or ""),
-                source_updated_at=str(raw.get("source_updated_at") or ""),
+                imagekit_file_id=imagekit_file_id,
+                imagekit_url=imagekit_url,
+                source_updated_at=source_updated_at,
                 is_reference=_to_bool_int(raw.get("is_reference")),
                 sku=_opt(raw.get("sku")),
                 name=_opt(raw.get("name")),

@@ -273,3 +273,80 @@ def test_backfill_skips_soft_deleted():
                             image_fetcher=MockFetcher(), collection_name=name, batch_size=4)
     assert stats.indexed == 9
     assert qdrant.count(name).count == 9
+
+
+@requires_qdrant
+def test_dry_run_checkpoint_does_not_poison_real_run(tmp_path):
+    """Review #2: a dry-run must not advance the persistent checkpoint, so a
+    subsequent real run still indexes every row."""
+    db = FakeD1Client()
+    _seed_images(db, 30)
+    settings = _settings()
+    qdrant = _new_qdrant()
+    name = settings.active_collection
+    ckpt_path = str(tmp_path / "ckpt.json")
+
+    # Dry-run with a checkpoint present.
+    ckpt = bi.Checkpoint(path=ckpt_path).load()
+    dry_stats = bi.run_backfill(db=db, encoder=FakeEncoder(), settings=settings, qdrant=qdrant,
+                                image_fetcher=MockFetcher(), collection_name=name,
+                                batch_size=8, checkpoint=ckpt, dry_run=True)
+    assert dry_stats.indexed == 30
+    # Checkpoint file must NOT have been written/advanced by the dry-run.
+    import os
+    assert not os.path.exists(ckpt_path)
+
+    # Real run resumes from an unpolluted checkpoint and indexes all rows.
+    ckpt2 = bi.Checkpoint(path=ckpt_path).load()
+    assert ckpt2.last_image_id is None
+    real_stats = bi.run_backfill(db=db, encoder=FakeEncoder(), settings=settings, qdrant=qdrant,
+                                 image_fetcher=MockFetcher(), collection_name=name,
+                                 batch_size=8, checkpoint=ckpt2)
+    assert real_stats.indexed == 30
+    assert qdrant.count(name).count == 30
+    assert db.query("SELECT COUNT(*) c FROM embedding_map")[0]["c"] == 30
+
+
+@requires_qdrant
+def test_mid_batch_failure_is_retried_on_resume(tmp_path):
+    """Review #3: a failed image in the middle of a batch must not be skipped
+    permanently — the checkpoint must not advance past it, so resume retries."""
+    db = FakeD1Client()
+    _seed_images(db, 6)
+    settings = _settings()
+    qdrant = _new_qdrant()
+    name = settings.active_collection
+    ckpt_path = str(tmp_path / "ckpt.json")
+
+    fetcher = MockFetcher()
+    # img0002 fails on the first run only; img0003 (after it) succeeds.
+    fail_state = {"blocked": {"img0002"}}
+
+    def flaky_fetch(url):
+        image_id = url.split("imgid=")[1].split("&")[0]
+        if image_id in fail_state["blocked"]:
+            raise bi.TransientFetchError(f"transient {image_id}")
+        return fetcher(url)
+
+    ckpt = bi.Checkpoint(path=ckpt_path).load()
+    stats = bi.run_backfill(db=db, encoder=FakeEncoder(), settings=settings, qdrant=qdrant,
+                            image_fetcher=flaky_fetch, collection_name=name,
+                            batch_size=6, checkpoint=ckpt, max_retries=1, sleep=lambda s: None)
+    # img0002 failed; the other 5 indexed. Checkpoint must NOT have passed img0002.
+    assert stats.fetch_failures == 1
+    assert stats.indexed == 5
+    assert db.query("SELECT COUNT(*) c FROM embedding_map WHERE image_id='img0002'")[0]["c"] == 0
+    assert ckpt.last_image_id == "img0001"  # last contiguous success before the failure
+
+    # Resume with the fetcher now healthy: img0002 (and anything after) reattempted.
+    fail_state["blocked"] = set()
+    ckpt2 = bi.Checkpoint(path=ckpt_path).load()
+    assert ckpt2.last_image_id == "img0001"
+    stats2 = bi.run_backfill(db=db, encoder=FakeEncoder(), settings=settings, qdrant=qdrant,
+                             image_fetcher=flaky_fetch, collection_name=name,
+                             batch_size=6, checkpoint=ckpt2, max_retries=1, sleep=lambda s: None)
+    # img0002 re-attempted and now indexed; img0003-5 skipped as already mapped.
+    assert db.query("SELECT COUNT(*) c FROM embedding_map WHERE image_id='img0002'")[0]["c"] == 1
+    assert db.query("SELECT COUNT(*) c FROM embedding_map")[0]["c"] == 6
+    assert qdrant.count(name).count == 6
+    assert db.query("SELECT COUNT(DISTINCT vector_id) c FROM embedding_map")[0]["c"] == 6

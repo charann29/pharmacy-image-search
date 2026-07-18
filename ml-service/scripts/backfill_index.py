@@ -232,9 +232,11 @@ def run_backfill(
     def flush() -> None:
         if not pending:
             return
-        images = []
-        kept: list[dict[str, Any]] = []
-        for row in pending:
+        # Fetch each row in order, tracking the FIRST failure so the checkpoint
+        # never advances past an image that has not been successfully indexed.
+        results: list[tuple[dict[str, Any], Any]] = []
+        first_failure_index: Optional[int] = None
+        for idx, row in enumerate(pending):
             url = build_transform_url(row.get("imagekit_url") or "", transform_width)
             try:
                 data = retry_with_backoff(
@@ -243,46 +245,62 @@ def run_backfill(
             except TransientFetchError:
                 stats.fetch_failures += 1
                 logger.warning("giving up on image after retries: %s", row.get("image_id"))
+                if first_failure_index is None:
+                    first_failure_index = idx
+                results.append((row, None))
                 continue
-            images.append(_load_image(data))
-            kept.append(row)
-        if not kept:
-            pending.clear()
-            return
+            results.append((row, data))
 
-        vectors = encoder.embed(images)
-        points = []
-        map_stmts: list[tuple[str, list[Any]]] = []
-        for row, vec in zip(kept, vectors):
-            image_id = row["image_id"]
-            product_id = row["product_id"]
-            vid = qc.deterministic_vector_id(encoder_name, embedding_dim, image_id)
-            points.append(
-                qc.build_point(
-                    vec,
-                    image_id=image_id,
-                    product_id=product_id,
-                    encoder=encoder_name,
-                    embedding_dim=embedding_dim,
-                    is_reference=bool(row.get("is_reference", False)),
-                    vector_id=vid,
+        # Rows that fetched successfully still get indexed (writing a later
+        # success is harmless — it is simply re-skipped on resume). The
+        # checkpoint, however, only advances across the CONTIGUOUS successful
+        # prefix before the first failure, so any failed image is retried.
+        kept = [(row, data) for row, data in results if data is not None]
+
+        if kept:
+            images = [_load_image(data) for _, data in kept]
+            vectors = encoder.embed(images)
+            points = []
+            map_stmts: list[tuple[str, list[Any]]] = []
+            for (row, _data), vec in zip(kept, vectors):
+                image_id = row["image_id"]
+                product_id = row["product_id"]
+                vid = qc.deterministic_vector_id(encoder_name, embedding_dim, image_id)
+                points.append(
+                    qc.build_point(
+                        vec,
+                        image_id=image_id,
+                        product_id=product_id,
+                        encoder=encoder_name,
+                        embedding_dim=embedding_dim,
+                        is_reference=bool(row.get("is_reference", False)),
+                        vector_id=vid,
+                    )
                 )
-            )
-            map_stmts.append((
-                "INSERT OR REPLACE INTO embedding_map "
-                "(vector_id, image_id, product_id, encoder, embedding_dim, indexed_at) "
-                "VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
-                [vid, image_id, product_id, encoder_name, embedding_dim],
-            ))
+                map_stmts.append((
+                    "INSERT OR REPLACE INTO embedding_map "
+                    "(vector_id, image_id, product_id, encoder, embedding_dim, indexed_at) "
+                    "VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+                    [vid, image_id, product_id, encoder_name, embedding_dim],
+                ))
 
-        if not dry_run:
-            qc.upsert(points, settings=settings, client=qdrant, collection_name=collection_name)
-            db.batch(map_stmts)
+            if not dry_run:
+                qc.upsert(points, settings=settings, client=qdrant, collection_name=collection_name)
+                db.batch(map_stmts)
 
-        stats.indexed += len(kept)
-        mapped.update(row["image_id"] for row in kept)
-        if checkpoint:
-            checkpoint.last_image_id = kept[-1]["image_id"]
+            stats.indexed += len(kept)
+            mapped.update(row["image_id"] for row, _ in kept)
+
+        # Determine how far it is safe to advance the checkpoint: the last
+        # image in the contiguous successful prefix before the first failure.
+        if first_failure_index is None:
+            safe_prefix = pending  # every row fetched successfully
+        else:
+            safe_prefix = pending[:first_failure_index]
+        # NEVER persist/advance the checkpoint during a dry-run: a real run must
+        # still see every row as un-indexed and index it.
+        if checkpoint and not dry_run and safe_prefix:
+            checkpoint.last_image_id = safe_prefix[-1]["image_id"]
             checkpoint.indexed = stats.indexed
             checkpoint.save()
         pending.clear()

@@ -103,6 +103,47 @@ def test_unmapped_image_reported_and_skipped():
     assert db.query("SELECT COUNT(*) c FROM product_images WHERE image_id = 'orphan1'")[0]["c"] == 0
 
 
+def test_missing_imagekit_url_reported_and_skipped():
+    db = FakeD1Client()
+    rows = _rows() + [
+        {"product_id": "p9", "image_id": "bad_url", "imagekit_file_id": "fx",
+         "imagekit_url": "", "source_updated_at": "2026-01-01T00:00:00Z",
+         "is_reference": "0", "name": "Bad"},
+    ]
+    report = cs.sync(db, rows)
+    assert report.invalid == 1
+    assert report.mapped == 3
+    # Reported as skipped, never inserted (would poison D1 + break backfill).
+    assert db.query("SELECT COUNT(*) c FROM product_images WHERE image_id = 'bad_url'")[0]["c"] == 0
+    # Its product is not created from an invalid-only row.
+    assert db.query("SELECT COUNT(*) c FROM products WHERE product_id = 'p9'")[0]["c"] == 0
+
+
+def test_missing_source_updated_at_reported_and_skipped():
+    db = FakeD1Client()
+    rows = _rows() + [
+        {"product_id": "p9", "image_id": "bad_ts", "imagekit_file_id": "fx",
+         "imagekit_url": "https://ik/bad_ts", "source_updated_at": "",
+         "is_reference": "0", "name": "Bad"},
+    ]
+    report = cs.sync(db, rows)
+    assert report.invalid == 1
+    assert report.mapped == 3
+    assert db.query("SELECT COUNT(*) c FROM product_images WHERE image_id = 'bad_ts'")[0]["c"] == 0
+
+
+def test_missing_imagekit_file_id_reported_and_skipped():
+    db = FakeD1Client()
+    rows = _rows() + [
+        {"product_id": "p9", "image_id": "bad_fid", "imagekit_file_id": "",
+         "imagekit_url": "https://ik/bad_fid", "source_updated_at": "2026-01-01T00:00:00Z",
+         "is_reference": "0", "name": "Bad"},
+    ]
+    report = cs.sync(db, rows)
+    assert report.invalid == 1
+    assert db.query("SELECT COUNT(*) c FROM product_images WHERE image_id = 'bad_fid'")[0]["c"] == 0
+
+
 def test_reactivation_of_previously_deleted(tmp_path):
     db = FakeD1Client()
     cs.sync(db, _rows())
