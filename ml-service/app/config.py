@@ -27,6 +27,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     # ---- Encoder selection (encoder-agnostic design) --------------------
@@ -77,6 +78,13 @@ class Settings(BaseSettings):
     auth_require: bool = Field(
         default=True,
         description="When False, auth is bypassed (local dev only).",
+    )
+
+    # ---- Startup validation ---------------------------------------------
+    validate_collection_on_startup: bool = Field(
+        default=True,
+        description="Validate active collection encoder/dim against config on boot. "
+        "A genuine mismatch blocks startup; disable only for tests/dev.",
     )
 
     # ---- Inference -------------------------------------------------------

@@ -25,6 +25,8 @@ qdrant-client==1.12.1
 # --- Web framework ---
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+# Required by FastAPI for multipart/form-data uploads (/search, /ocr, /embed).
+python-multipart==0.0.20
 
 # --- Config / validation ---
 pydantic-settings==2.7.1
