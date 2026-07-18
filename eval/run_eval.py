@@ -57,6 +57,10 @@ DEFAULT_TOP_K = 50
 DEFAULT_RECALL_TARGET = 0.8
 DEFAULT_FP_LIMIT = 0.2
 DEFAULT_RRF_K = 60
+# Multiplier applied to the image weight on weak_visual_match. MUST match the
+# production Worker (worker/src/fusion.ts -> weakVisualImageMultiplier = 0.3) so
+# eval-side fusion ranking (and thus threshold calibration) mirrors production.
+DEFAULT_WEAK_VISUAL_MULTIPLIER = 0.3
 
 
 # --------------------------------------------------------------------------
@@ -195,7 +199,7 @@ def rrf_fuse(
     leans on text (mirrors the Worker fusion behaviour).
     """
     if weak_visual_match:
-        w_image *= 0.2
+        w_image *= DEFAULT_WEAK_VISUAL_MULTIPLIER
     scores: dict[str, float] = {}
     for rank, hit in enumerate(image_products):
         pid = hit["product_id"]
