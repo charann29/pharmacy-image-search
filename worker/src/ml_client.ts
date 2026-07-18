@@ -28,6 +28,7 @@
  */
 
 import type { Env, MlSearchResponse, MlOcrResponse } from "./types";
+import { envNumber } from "./util";
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
@@ -82,8 +83,7 @@ export async function computeSignature(
 }
 
 function timeoutMs(env: Env): number {
-  const parsed = Number(env.ML_TIMEOUT_MS);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
+  return envNumber(env.ML_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, { positive: true });
 }
 
 /**

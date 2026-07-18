@@ -7,6 +7,7 @@
  */
 
 import type { ProductMetadata } from "./types";
+import { dedupe } from "./util";
 
 /**
  * Hydrate product metadata for a list of product_ids, joining a representative
@@ -109,14 +110,3 @@ export async function findProductByBarcode(
   };
 }
 
-function dedupe(items: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of items) {
-    if (item && !seen.has(item)) {
-      seen.add(item);
-      out.push(item);
-    }
-  }
-  return out;
-}

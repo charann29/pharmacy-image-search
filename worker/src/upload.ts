@@ -21,6 +21,7 @@
  */
 
 import type { Env } from "./types";
+import { envNumber } from "./util";
 
 /** Default strict max upload size: 10 MiB. */
 export const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -40,10 +41,9 @@ export class EmptyUploadError extends Error {
 }
 
 export function maxUploadBytes(env: Env): number {
-  const parsed = Number(env.MAX_UPLOAD_BYTES);
-  return Number.isFinite(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_MAX_UPLOAD_BYTES;
+  return envNumber(env.MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES, {
+    positive: true,
+  });
 }
 
 /**

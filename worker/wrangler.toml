@@ -37,6 +37,7 @@ COMMERCE_API_URL = ""
 # W_TEXT                       = "1.0"      # text weight (weighted mode)
 # RRF_K                        = "60"       # RRF constant
 # WEAK_VISUAL_IMAGE_MULTIPLIER = "0.3"      # image down-weight on weak match
+# TIE_BREAK_DELTA              = "0.05"     # near-tie window for OCR tie-break
 # MAX_UPLOAD_BYTES             = "10485760" # strict max upload size (10 MiB)
 # ML_TIMEOUT_MS                = "8000"     # ML /search + /ocr timeout
 # TEXT_SEARCH_TIMEOUT_MS       = "2500"     # text adapter timeout

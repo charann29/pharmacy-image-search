@@ -3,7 +3,11 @@ import {
   fuse,
   fusionParamsFromEnv,
   rankMlHits,
+  applyTieBreak,
+  tieBreakMatchScore,
+  tieBreakDeltaFromEnv,
   DEFAULT_FUSION_PARAMS,
+  type TieBreakSignals,
 } from "../src/fusion";
 import type { RankedItem } from "../src/types";
 
@@ -121,5 +125,90 @@ describe("rankMlHits", () => {
       { product_id: "A", score: 0.9, rank: 1 },
       { product_id: "B", score: 0.8, rank: 2 },
     ]);
+  });
+});
+
+describe("tieBreakMatchScore", () => {
+  const sig = (o: Partial<TieBreakSignals>): TieBreakSignals => ({
+    product_id: "P",
+    score: 0,
+    name: null,
+    strength: null,
+    manufacturer: null,
+    barcode: null,
+    ...o,
+  });
+
+  it("scores name token overlap with OCR text", () => {
+    const s = tieBreakMatchScore(sig({ name: "Crocin Advance" }), "crocin box front");
+    expect(s).toBeGreaterThan(0);
+  });
+
+  it("rewards strength match strongly", () => {
+    const withStrength = tieBreakMatchScore(sig({ strength: "650mg" }), "tablet 650 mg pack");
+    expect(withStrength).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it("rewards barcode match most strongly", () => {
+    const s = tieBreakMatchScore(sig({ barcode: "8901234567" }), "code 8901234567 back");
+    expect(s).toBeGreaterThanOrEqual(2.0);
+  });
+
+  it("returns 0 for empty OCR text", () => {
+    expect(tieBreakMatchScore(sig({ name: "Crocin" }), "  ")).toBe(0);
+  });
+});
+
+describe("applyTieBreak", () => {
+  const item = (id: string, score: number, o: Partial<TieBreakSignals> = {}): TieBreakSignals => ({
+    product_id: id,
+    score,
+    name: null,
+    strength: null,
+    manufacturer: null,
+    barcode: null,
+    ...o,
+  });
+
+  it("reorders near-tie cluster by OCR match (barcode wins)", () => {
+    // A and B are within delta; B's barcode is in the OCR text -> B first.
+    const items = [
+      item("A", 0.90, { name: "Generic Paracetamol" }),
+      item("B", 0.88, { name: "Generic Paracetamol", barcode: "8901234567" }),
+      item("C", 0.20, { name: "Unrelated" }),
+    ];
+    const out = applyTieBreak(items, "paracetamol 8901234567", 0.05);
+    expect(out.map((i) => i.product_id)).toEqual(["B", "A", "C"]);
+  });
+
+  it("does not reorder products outside the delta cluster", () => {
+    const items = [
+      item("A", 0.90, { name: "Alpha" }),
+      item("B", 0.50, { name: "Beta", barcode: "111222333" }), // strong match but far below
+    ];
+    // B matches OCR strongly but is outside delta of A -> order preserved.
+    const out = applyTieBreak(items, "beta 111222333", 0.05);
+    expect(out.map((i) => i.product_id)).toEqual(["A", "B"]);
+  });
+
+  it("no-ops without OCR text or with single item", () => {
+    const items = [item("A", 0.9), item("B", 0.88)];
+    expect(applyTieBreak(items, "", 0.05).map((i) => i.product_id)).toEqual(["A", "B"]);
+    expect(applyTieBreak([item("A", 0.9)], "x", 0.05).map((i) => i.product_id)).toEqual(["A"]);
+  });
+
+  it("falls back to fused score order on equal OCR match", () => {
+    const items = [item("A", 0.90), item("B", 0.89)];
+    const out = applyTieBreak(items, "nomatch text", 0.05);
+    expect(out.map((i) => i.product_id)).toEqual(["A", "B"]);
+  });
+});
+
+describe("tieBreakDeltaFromEnv", () => {
+  it("defaults to 0.05", () => {
+    expect(tieBreakDeltaFromEnv({} as any)).toBe(0.05);
+  });
+  it("reads TIE_BREAK_DELTA", () => {
+    expect(tieBreakDeltaFromEnv({ TIE_BREAK_DELTA: "0.1" } as any)).toBe(0.1);
   });
 });

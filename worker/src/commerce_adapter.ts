@@ -13,12 +13,14 @@
  */
 
 import type { Env, PriceMap, PriceInfo } from "./types";
+import { envNumber, dedupe } from "./util";
 
 const DEFAULT_TIMEOUT_MS = 2500;
 
 function timeoutMs(env: Env): number {
-  const parsed = Number(env.COMMERCE_TIMEOUT_MS);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
+  return envNumber(env.COMMERCE_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, {
+    positive: true,
+  });
 }
 
 /**
@@ -115,14 +117,3 @@ function normalize(json: unknown): PriceMap {
   return out;
 }
 
-function dedupe(items: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of items) {
-    if (item && !seen.has(item)) {
-      seen.add(item);
-      out.push(item);
-    }
-  }
-  return out;
-}

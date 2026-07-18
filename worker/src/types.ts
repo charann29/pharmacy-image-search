@@ -33,6 +33,8 @@ export interface Env {
   RRF_K?: string;
   /** Multiplier applied to image weight when weak_visual_match is set. */
   WEAK_VISUAL_IMAGE_MULTIPLIER?: string;
+  /** Score delta within which top products are reordered by OCR tie-break. */
+  TIE_BREAK_DELTA?: string;
   /** Strict max upload size in bytes. */
   MAX_UPLOAD_BYTES?: string;
   /** Per-request timeout (ms) for ML/text/commerce calls. */

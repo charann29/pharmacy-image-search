@@ -18,6 +18,7 @@
  */
 
 import type { Env, MlProductHit, RankedItem, FusedItem } from "./types";
+import { envNumber } from "./util";
 
 export interface FusionParams {
   mode: "rrf" | "weighted";
@@ -36,9 +37,7 @@ export const DEFAULT_FUSION_PARAMS: FusionParams = {
 };
 
 function num(value: string | undefined, fallback: number): number {
-  if (value === undefined || value === null || value === "") return fallback;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return envNumber(value, fallback);
 }
 
 /** Resolve fusion params from env vars, falling back to defaults. */
@@ -133,4 +132,119 @@ function minMaxNormalize(list: RankedItem[]): Map<string, number> {
     out.set(item.product_id, value);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Task 9 — near-identical-generic tie-breaker
+// ---------------------------------------------------------------------------
+
+/** Product signals (from D1) used to break ties against OCR text. */
+export interface TieBreakSignals {
+  product_id: string;
+  score: number;
+  name: string | null;
+  strength: string | null;
+  manufacturer: string | null;
+  barcode: string | null;
+}
+
+const DEFAULT_TIE_BREAK_DELTA = 0.05;
+
+/** Resolve the tie-break score delta from env (default 0.05). */
+export function tieBreakDeltaFromEnv(env: Env): number {
+  return num(env.TIE_BREAK_DELTA, DEFAULT_TIE_BREAK_DELTA);
+}
+
+/** Normalize free text for token matching (lowercase, collapse non-alnum). */
+function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Score how strongly a product's metadata matches the OCR text. Combines
+ * OCR-extracted name/strength + manufacturer + barcode signals. Higher = better.
+ *
+ * - name: fraction of name tokens (len>=3) present in the OCR text
+ * - strength: +1.5 if the normalized strength token appears (e.g. "650mg")
+ * - manufacturer: +1.0 if present
+ * - barcode: +2.0 if the barcode digits appear in the OCR text (strongest,
+ *   near-unique signal). Barcode IS derivable here when the pack's printed
+ *   barcode number is captured among the OCR tokens.
+ */
+export function tieBreakMatchScore(
+  signals: TieBreakSignals,
+  ocrText: string,
+): number {
+  const hay = normalizeText(ocrText);
+  if (!hay) return 0;
+  const haySquished = hay.replace(/\s+/g, "");
+  let score = 0;
+
+  if (signals.name) {
+    const tokens = normalizeText(signals.name)
+      .split(" ")
+      .filter((t) => t.length >= 3);
+    if (tokens.length) {
+      const hits = tokens.filter((t) => hay.includes(t)).length;
+      score += hits / tokens.length;
+    }
+  }
+
+  if (signals.strength) {
+    const s = normalizeText(signals.strength).replace(/\s+/g, "");
+    if (s && haySquished.includes(s)) score += 1.5;
+  }
+
+  if (signals.manufacturer) {
+    const m = normalizeText(signals.manufacturer);
+    if (m && m.length >= 3 && hay.includes(m)) score += 1.0;
+  }
+
+  if (signals.barcode) {
+    const b = signals.barcode.replace(/[^0-9]/g, "");
+    if (b.length >= 6 && haySquished.includes(b)) score += 2.0;
+  }
+
+  return score;
+}
+
+/**
+ * Reorder products that are within `delta` of each other (a near-tie cluster)
+ * using the OCR-derived tie-break match score. Products outside a cluster keep
+ * their fusion order; within a cluster, higher OCR match wins, falling back to
+ * the original fused score for stability.
+ *
+ * `items` must be pre-sorted by `score` descending.
+ */
+export function applyTieBreak(
+  items: TieBreakSignals[],
+  ocrText: string,
+  delta: number = DEFAULT_TIE_BREAK_DELTA,
+): TieBreakSignals[] {
+  if (items.length < 2 || !ocrText.trim() || delta <= 0) return items.slice();
+
+  const result: TieBreakSignals[] = [];
+  let i = 0;
+  while (i < items.length) {
+    // Grow a cluster while each next item is within `delta` of the cluster head.
+    const head = items[i].score;
+    let j = i + 1;
+    while (j < items.length && head - items[j].score <= delta) j++;
+    const cluster = items.slice(i, j);
+    if (cluster.length > 1) {
+      const matches = new Map<string, number>(
+        cluster.map((c) => [c.product_id, tieBreakMatchScore(c, ocrText)]),
+      );
+      cluster.sort((a, b) => {
+        const ma = matches.get(a.product_id) ?? 0;
+        const mb = matches.get(b.product_id) ?? 0;
+        if (mb !== ma) return mb - ma;
+        // Fallback: preserve original fused score order (stable).
+        return b.score - a.score;
+      });
+    }
+    result.push(...cluster);
+    i = j;
+  }
+  return result;
 }

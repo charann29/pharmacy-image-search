@@ -11,12 +11,14 @@
  */
 
 import type { Env, RankedItem } from "./types";
+import { envNumber } from "./util";
 
 const DEFAULT_TIMEOUT_MS = 2500;
 
 function timeoutMs(env: Env): number {
-  const parsed = Number(env.TEXT_SEARCH_TIMEOUT_MS);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
+  return envNumber(env.TEXT_SEARCH_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, {
+    positive: true,
+  });
 }
 
 /**

@@ -66,6 +66,19 @@ beforeAll(async () => {
       "INSERT INTO product_images (image_id, product_id, imagekit_url, is_reference, created_at) VALUES (?,?,?,1,?)",
     ).bind(`img-${id}`, id, `https://ik/${id}.jpg`, "2024-01-01T00:00:00Z").run();
   }
+  // Near-identical generics for the tie-break test: same name/strength, distinct
+  // numeric barcodes so OCR-derived barcode can disambiguate.
+  await DB.prepare(
+    "INSERT INTO products (product_id, name, manufacturer, strength, sku, barcode, active) VALUES ('G1','Generic Paracetamol','AcmeCo','650mg','sku-G1','8901111111',1)",
+  ).run();
+  await DB.prepare(
+    "INSERT INTO products (product_id, name, manufacturer, strength, sku, barcode, active) VALUES ('G2','Generic Paracetamol','BetaCorp','650mg','sku-G2','8902222222',1)",
+  ).run();
+  for (const id of ["G1", "G2"]) {
+    await DB.prepare(
+      "INSERT INTO product_images (image_id, product_id, imagekit_url, is_reference, created_at) VALUES (?,?,?,1,?)",
+    ).bind(`img-${id}`, id, `https://ik/${id}.jpg`, "2024-01-01T00:00:00Z").run();
+  }
 });
 
 beforeEach(() => {
@@ -144,24 +157,70 @@ describe("orchestration — happy path", () => {
     expect(body.weak_visual_match).toBe(true);
     expect(body.products[0].product_id).toBe("Z");
   });
+
+  it("tie-breaks near-identical generics using OCR barcode/manufacturer", async () => {
+    // Visual scores put G1 slightly ahead of G2 but within the tie-break delta.
+    // OCR captures G2's barcode + manufacturer -> G2 should be promoted to #1.
+    mockMlSearch([
+      { product_id: "G1", score: 0.90 },
+      { product_id: "G2", score: 0.88 },
+    ]);
+    mockMlOcr(["Generic Paracetamol 650mg", "BetaCorp", "8902222222"]);
+    mockText([]); // isolate the visual + tie-break path
+    mockCommerce({});
+
+    const res = await run(
+      baseEnv({ HYBRID_FUSION_ENABLED: "false", TIE_BREAK_DELTA: "0.2" }),
+      post(),
+    );
+    const body = (await res.json()) as any;
+    expect(body.products.map((p: any) => p.product_id)).toEqual(["G2", "G1"]);
+  });
 });
 
 describe("orchestration — feature flags", () => {
-  it("flags off yields text-only behavior (no ML /search fan-out)", async () => {
-    // Deliberately register NO /search interceptor: with net-connect disabled,
-    // any /search call would throw and fail the test — proving no fan-out.
-    mockMlOcr(["dolo"]);
+  it("flags off yields PURE text-only behavior with ZERO ML dependency", async () => {
+    // Register NO ML interceptors at all. With net-connect disabled, ANY ML
+    // call (/search or /ocr) would throw and fail the test — proving zero ML
+    // fan-out. We also unset ML_SERVICE_SHARED_SECRET to prove the path works
+    // even when the ML service is unconfigured/down (additive rollback).
     mockText([{ product_id: "Z", score: 0.9 }, { product_id: "B", score: 0.5 }]);
     mockCommerce({});
 
     const res = await run(
-      baseEnv({ IMAGE_SEARCH_ENABLED: "false", HYBRID_FUSION_ENABLED: "false" }),
+      baseEnv({
+        IMAGE_SEARCH_ENABLED: "false",
+        HYBRID_FUSION_ENABLED: "false",
+        ML_SERVICE_SHARED_SECRET: undefined,
+        ML_SERVICE_URL: "http://ml-is-down.invalid",
+      }),
+      // Text query supplied via request (query param), not via OCR.
+      new Request("https://w/search?q=dolo%20650", {
+        method: "POST",
+        body: new Uint8Array([1, 2, 3, 4]),
+        headers: { "cf-connecting-ip": "5.5.5.5" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.fusion.mode).toBe("text-only");
+    expect(body.ocr_candidates).toEqual([]);
+    expect(body.products.map((p: any) => p.product_id)).toEqual(["Z", "B"]);
+  });
+
+  it("flags off with no text query returns empty results (no ML call)", async () => {
+    // No text query and no ML calls -> empty result set, still HTTP 200.
+    const res = await run(
+      baseEnv({
+        IMAGE_SEARCH_ENABLED: "false",
+        ML_SERVICE_SHARED_SECRET: undefined,
+      }),
       post(),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(body.fusion.mode).toBe("text-only");
-    expect(body.products.map((p: any) => p.product_id)).toEqual(["Z", "B"]);
+    expect(body.products).toEqual([]);
   });
 
   it("hybrid off yields image-only ranking", async () => {
