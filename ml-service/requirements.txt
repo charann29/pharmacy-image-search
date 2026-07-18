@@ -1,0 +1,40 @@
+# ml-service pinned dependencies.
+#
+# CUDA alignment (IMPORTANT): torch and paddlepaddle-gpu MUST target the SAME
+# CUDA minor line as the Dockerfile base image. This file targets CUDA 12.6:
+#   - Dockerfile base:      nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
+#   - torch cu126 wheels:   installed from the PyTorch cu126 index (see Dockerfile)
+#   - paddlepaddle-gpu:     cu126 wheels installed from the Paddle index (see Dockerfile)
+#
+# torch and paddlepaddle-gpu are installed in the Dockerfile from their custom
+# wheel indexes (they are NOT on the default PyPI index for GPU builds), so they
+# are listed here for documentation but installed with explicit --index-url /
+# --find-links flags in the Dockerfile.
+
+# --- Deep learning / encoders (installed via custom index in Dockerfile) ---
+torch==2.7.1
+transformers>=4.56.0
+
+# --- OCR (paddlepaddle-gpu installed via Paddle index in Dockerfile) ---
+paddlepaddle-gpu==3.1.0
+paddleocr==3.1.0
+
+# --- Vector DB client ---
+qdrant-client==1.12.1
+
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Config / validation ---
+pydantic-settings==2.7.1
+
+# --- Image + numeric ---
+pillow==11.1.0
+numpy==2.1.3
+
+# --- HTTP client (D1 REST, ImageKit, tests) ---
+httpx==0.28.1
+
+# --- Testing ---
+pytest==8.3.4

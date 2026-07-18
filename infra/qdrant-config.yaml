@@ -1,0 +1,37 @@
+# Qdrant production config (mounted at /qdrant/config/production.yaml).
+# Defaults for storage, HNSW, and quantization. Collection-level params are set
+# by ensure_collection() in ml-service (Task 2); these are service-wide defaults.
+
+log_level: INFO
+
+storage:
+  # Persisted via the qdrant_storage volume (see docker-compose.yml).
+  storage_path: /qdrant/storage
+  snapshots_path: /qdrant/snapshots
+  # Keep original float32 vectors on disk; quantized vectors served from RAM.
+  on_disk_payload: true
+
+  optimizers:
+    # Build the HNSW index once a segment exceeds this many vectors.
+    indexing_threshold: 20000
+    default_segment_number: 2
+
+  hnsw_index:
+    # Graph connectivity / build quality. Overridable per collection.
+    m: 16
+    ef_construct: 128
+    full_scan_threshold: 10000
+    on_disk: false
+
+  quantization:
+    # Service-wide default; collections set their own via ensure_collection().
+    scalar:
+      type: int8
+      # Keep quantized vectors in RAM for fast ANN; rescore with originals.
+      always_ram: true
+
+service:
+  http_port: 6333
+  grpc_port: 6334
+  # enable_cors for browser-based dashboards during dev.
+  enable_cors: true

@@ -1,0 +1,43 @@
+name = "image-search-worker"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# --- D1 binding (env.DB) ---
+# The binding handles DB access; NO Cloudflare API token / account id / database
+# id belongs in the Worker. `database_id` is a per-account resource id (not a
+# secret) required by wrangler; for greenfield/local dev it is a placeholder and
+# `--dry-run` / `--local` do not require a provisioned remote DB.
+[[d1_databases]]
+binding = "DB"
+database_name = "image-search"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# --- Workers rate-limiting binding ---
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
+
+# --- Non-secret vars (feature flags + non-sensitive endpoints) ---
+# Secrets (IMAGEKIT_*, ML_SERVICE_SHARED_SECRET, *_AUTH) are NOT set here — add
+# them with `wrangler secret put <NAME>` or via the dashboard. Listed by NAME in
+# .env.example and README.
+[vars]
+IMAGE_SEARCH_ENABLED = "false"
+HYBRID_FUSION_ENABLED = "false"
+# Endpoint URLs are non-secret config; override per environment.
+ML_SERVICE_URL = "http://localhost:8000"
+TEXT_SEARCH_URL = ""
+COMMERCE_API_URL = ""
+
+# Secrets referenced by the Worker (set via `wrangler secret put`, NEVER here):
+#   IMAGEKIT_PUBLIC_KEY
+#   IMAGEKIT_PRIVATE_KEY
+#   ML_SERVICE_SHARED_SECRET   (shared-secret / HMAC signing key)
+#   TEXT_SEARCH_AUTH
+#   COMMERCE_API_AUTH
+
+[observability]
+enabled = true

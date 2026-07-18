@@ -1,0 +1,11 @@
+# Build context is ../ml-service for the Dockerfile.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+tests/
+*.md
+.env
+.env.*
