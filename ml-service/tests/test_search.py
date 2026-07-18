@@ -105,3 +105,48 @@ def test_apply_threshold_explicit_threshold_overrides_encoder():
     products = [{"product_id": "p1", "score": 0.5}]
     assert apply_threshold(products, threshold=0.6) is True
     assert apply_threshold(products, threshold=0.4) is False
+
+
+# --------------------------------------------------------------------------
+# calibrated threshold loading (Review #7)
+# --------------------------------------------------------------------------
+def test_load_calibrated_thresholds_present(tmp_path):
+    import json
+
+    from app.search.threshold import load_calibrated_thresholds
+
+    p = tmp_path / "thresholds.json"
+    p.write_text(json.dumps({"encoders": {"siglip2": {"weak_visual_match_threshold": 0.72}, "dinov3": {"weak_visual_match_threshold": 0.61}}}))
+    loaded = load_calibrated_thresholds(str(p))
+    assert loaded == {"siglip2": 0.72, "dinov3": 0.61}
+
+
+def test_load_calibrated_thresholds_absent_or_missing(tmp_path):
+    from app.search.threshold import load_calibrated_thresholds
+
+    assert load_calibrated_thresholds(None) == {}
+    assert load_calibrated_thresholds(str(tmp_path / "nope.json")) == {}
+
+
+def test_load_calibrated_thresholds_bad_json(tmp_path):
+    from app.search.threshold import load_calibrated_thresholds
+
+    p = tmp_path / "bad.json"
+    p.write_text("{not valid json")
+    assert load_calibrated_thresholds(str(p)) == {}
+
+
+def test_threshold_for_encoder_prefers_calibrated():
+    from app.search.threshold import threshold_for_encoder
+
+    calibrated = {"siglip2": 0.8}
+    assert threshold_for_encoder("siglip2", calibrated) == 0.8
+    # Encoder absent from calibrated -> provisional default.
+    assert threshold_for_encoder("dinov3", calibrated) == 0.35
+
+
+def test_apply_threshold_uses_calibrated():
+    products = [{"product_id": "p1", "score": 0.5}]
+    # Calibrated 0.8 makes 0.5 weak; provisional 0.35 would make it strong.
+    assert apply_threshold(products, encoder="siglip2", calibrated={"siglip2": 0.8}) is True
+    assert apply_threshold(products, encoder="siglip2", calibrated={}) is False

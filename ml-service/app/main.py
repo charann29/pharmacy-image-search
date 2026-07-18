@@ -2,11 +2,17 @@
 
 Endpoints:
   - ``GET  /healthz`` -> liveness probe (200), reports encoder + collection.
-  - ``POST /search``  -> image bytes -> embed -> ANN -> group -> threshold ->
-    ``{products:[{product_id, score}], weak_visual_match}`` (Task 6).
-  - ``POST /ocr``     -> image bytes -> OCR candidates + raw tokens (Task 5).
-  - ``POST /embed``   -> image bytes/URL(s) -> normalized vectors + dim +
-    encoder (diagnostics/backfill only, Task 4).
+  - ``POST /search``  -> raw image bytes (application/octet-stream) -> embed ->
+    ANN -> group -> threshold -> ``{products:[{product_id, score}],
+    weak_visual_match}`` (Task 6).
+  - ``POST /ocr``     -> raw image bytes -> OCR candidates + raw tokens (Task 5).
+  - ``POST /embed``   -> image bytes (multipart) and/or URL(s) -> normalized
+    vectors + dim + encoder (diagnostics/backfill only, Task 4).
+
+``/search`` and ``/ocr`` read the raw request body directly (no multipart) so
+they accept exactly what the Cloudflare Worker sends: raw bytes with
+``Content-Type: application/octet-stream`` plus HMAC auth headers. ``/embed`` is
+a diagnostics/backfill tool and keeps its richer multipart + URL contract.
 
 All non-health routes require Worker->service auth (``require_auth``). Heavy ML
 imports (encoder/OCR) are done lazily inside handlers so the module imports and
@@ -20,7 +26,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from PIL import Image
 
@@ -29,15 +35,28 @@ from .config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
+# Per-encoder calibrated weak-match thresholds, loaded once at startup from
+# WEAK_MATCH_THRESHOLD_FILE (empty when unset/missing -> provisional defaults).
+_CALIBRATED_THRESHOLDS: dict[str, float] = {}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Block startup on an encoder/collection mismatch (plan Task 2).
+    """Startup: validate the active collection + load calibrated thresholds.
 
-    Best-effort on connection errors (Qdrant may not be up yet in some deploy
-    orderings), but a genuine dim/encoder mismatch raises and blocks startup.
+    Collection validation blocks startup on a genuine dim/encoder mismatch
+    (plan Task 2), but is best-effort on connection errors. Calibrated
+    thresholds (Task 10) are loaded from ``WEAK_MATCH_THRESHOLD_FILE`` when set.
     """
     settings = get_settings()
+
+    from .search.threshold import load_calibrated_thresholds
+
+    global _CALIBRATED_THRESHOLDS
+    _CALIBRATED_THRESHOLDS = load_calibrated_thresholds(settings.weak_match_threshold_file)
+    if _CALIBRATED_THRESHOLDS:
+        logger.info("Loaded calibrated weak-match thresholds: %s", _CALIBRATED_THRESHOLDS)
+
     if settings.validate_collection_on_startup:
         from .search import qdrant_client
 
@@ -94,8 +113,14 @@ def _check_size(data: bytes, settings: Settings) -> None:
         raise HTTPException(status_code=413, detail="Image exceeds max size.")
 
 
+def _require_body(data: Optional[bytes]) -> bytes:
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty request body; expected raw image bytes.")
+    return data
+
+
 # --------------------------------------------------------------------------
-# /embed — diagnostics / backfill only
+# /embed — diagnostics / backfill only (multipart files and/or URLs)
 # --------------------------------------------------------------------------
 @app.post("/embed", tags=["diagnostics"], dependencies=[Depends(require_auth)])
 async def embed(
@@ -136,19 +161,19 @@ async def embed(
 
 
 # --------------------------------------------------------------------------
-# /ocr — candidate query strings + raw tokens for the existing text search
+# /ocr — raw image bytes -> candidate query strings + raw tokens
 # --------------------------------------------------------------------------
 @app.post("/ocr", tags=["ocr"], dependencies=[Depends(require_auth)])
 async def ocr(
-    file: UploadFile = File(...),
+    body: bytes = Body(default=b"", media_type="application/octet-stream"),
     settings: Settings = Depends(get_settings),
 ) -> JSONResponse:
-    """Image bytes -> OCR candidate query string(s) + raw tokens."""
+    """Raw image bytes -> OCR candidate query string(s) + raw tokens."""
     import numpy as np
 
     from .ocr.paddle import get_engine
 
-    data = await file.read()
+    data = _require_body(body)
     _check_size(data, settings)
     image = _load_image_bytes(data)
     # PaddleOCR expects an ndarray (or path); pass an RGB ndarray.
@@ -158,16 +183,14 @@ async def ocr(
 
 
 # --------------------------------------------------------------------------
-# /search — image -> product IDs (embeds internally)
+# /search — raw image bytes -> product IDs (embeds internally)
 # --------------------------------------------------------------------------
 @app.post("/search", tags=["search"], dependencies=[Depends(require_auth)])
 async def search(
-    file: UploadFile = File(...),
-    top_k: int = Form(default=200),
-    pool: str = Form(default="max"),
+    body: bytes = Body(default=b"", media_type="application/octet-stream"),
     settings: Settings = Depends(get_settings),
 ) -> JSONResponse:
-    """Image bytes -> embed -> ANN -> group -> threshold.
+    """Raw image bytes -> embed -> ANN -> group -> threshold.
 
     Returns ``{products:[{product_id, score}], weak_visual_match, encoder}``.
     """
@@ -176,15 +199,17 @@ async def search(
     from .search.grouping import group_by_product
     from .search.threshold import apply_threshold
 
-    data = await file.read()
+    data = _require_body(body)
     _check_size(data, settings)
     image = _load_image_bytes(data)
 
     encoder = get_encoder(settings)
     vectors = encoder.embed([image])
-    hits = qdrant_client.query(vectors[0], top_k=top_k, settings=settings)
-    products = group_by_product(hits, pool=pool)
-    weak = apply_threshold(products, encoder=settings.encoder)
+    hits = qdrant_client.query(vectors[0], top_k=settings.search_top_k, settings=settings)
+    products = group_by_product(hits, pool=settings.search_pool)
+    weak = apply_threshold(
+        products, encoder=settings.encoder, calibrated=_CALIBRATED_THRESHOLDS
+    )
 
     return JSONResponse(
         content={

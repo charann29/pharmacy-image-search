@@ -87,10 +87,26 @@ class Settings(BaseSettings):
         "A genuine mismatch blocks startup; disable only for tests/dev.",
     )
 
+    # ---- Weak-match threshold calibration (Task 10) ---------------------
+    weak_match_threshold_file: Optional[str] = Field(
+        default=None,
+        alias="WEAK_MATCH_THRESHOLD_FILE",
+        description="Path to the calibrated per-encoder weak-match threshold JSON "
+        "written by eval/run_eval.py. When set and the active encoder is present, "
+        "its calibrated value overrides the provisional default (0.35).",
+    )
+
     # ---- Inference -------------------------------------------------------
     batch_size: int = Field(default=32, description="GPU embedding batch size.")
     device: str = Field(default="cuda", description="Torch device: cuda | cpu.")
     use_fp16: bool = Field(default=True, description="Use fp16 on GPU.")
+
+    # ---- Search ----------------------------------------------------------
+    search_top_k: int = Field(default=200, description="ANN top-K for /search.")
+    search_pool: str = Field(
+        default="max",
+        description="Per-product score pooling for /search: 'max' or 'mean'.",
+    )
 
     # ---- D1 REST (indexing environment ONLY) ----------------------------
     # These are used by scripts/ (catalog_sync, backfill_index) in the admin/
@@ -125,7 +141,3 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Cached settings singleton."""
     return Settings()
-
-
-# Convenience module-level instance for simple imports.
-settings = get_settings()
